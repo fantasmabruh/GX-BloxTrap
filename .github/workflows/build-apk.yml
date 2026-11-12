@@ -7,23 +7,216 @@ jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Localizar projeto Android
-        id: proj
+      - name: Gerar projeto Android
         run: |
-          SETTINGS=$(find . -name settings.gradle -not -path './.git/*' | head -n 1)
-          if [ -z "$SETTINGS" ]; then
-            echo "ERRO: settings.gradle nao encontrado no repositorio."
-            echo "Arquivos do repositorio:"
-            find . -not -path './.git/*' -type f | head -50
-            exit 1
-          fi
-          DIR=$(dirname "$SETTINGS")
-          echo "dir=$DIR" >> "$GITHUB_OUTPUT"
-          echo "Projeto encontrado em: $DIR"
-          ls -la "$DIR"
+          mkdir -p "$RUNNER_TEMP/proj" && cd "$RUNNER_TEMP/proj"
+          cat > "gradle.properties" <<'GX_EOF'
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          GX_EOF
+          cat > "settings.gradle" <<'GX_EOF'
+          pluginManagement {
+              repositories { google(); mavenCentral(); gradlePluginPortal() }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories { google(); mavenCentral() }
+          }
+          rootProject.name = "GXBloxTrapMobile"
+          include(":app")
+          GX_EOF
+          cat > "build.gradle" <<'GX_EOF'
+          plugins {
+              id 'com.android.application' version '8.7.3' apply false
+          }
+          GX_EOF
+          mkdir -p "app"
+          cat > "app/build.gradle" <<'GX_EOF'
+          plugins {
+              id 'com.android.application'
+          }
+
+          android {
+              namespace 'com.gxstore.bloxtrap'
+              compileSdk 35
+
+              defaultConfig {
+                  applicationId 'com.gxstore.bloxtrap'
+                  minSdk 30
+                  targetSdk 35
+                  versionCode 1
+                  versionName '1.0.0'
+              }
+          }
+          GX_EOF
+          mkdir -p "app/src/main"
+          cat > "app/src/main/AndroidManifest.xml" <<'GX_EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <queries>
+                  <package android:name="com.roblox.client" />
+              </queries>
+              <application
+                  android:theme="@android:style/Theme.Material.NoActionBar"
+                  android:label="GX BloxTrap"
+                  android:usesCleartextTraffic="false"
+                  android:allowBackup="false">
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          GX_EOF
+          mkdir -p "app/src/main/java/com/gxstore/bloxtrap"
+          cat > "app/src/main/java/com/gxstore/bloxtrap/MainActivity.java" <<'GX_EOF'
+          package com.gxstore.bloxtrap;
+
+          import android.app.Activity;
+          import android.app.AlertDialog;
+          import android.content.Intent;
+          import android.content.SharedPreferences;
+          import android.graphics.Color;
+          import android.graphics.Typeface;
+          import android.net.Uri;
+          import android.os.Bundle;
+          import android.view.Gravity;
+          import android.view.View;
+          import android.widget.Button;
+          import android.widget.LinearLayout;
+          import android.widget.ScrollView;
+          import android.widget.TextView;
+          import android.widget.Toast;
+
+          public class MainActivity extends Activity {
+              private final int BG = Color.rgb(9, 9, 11);
+              private final int CARD = Color.rgb(24, 24, 27);
+              private final int PURPLE = Color.rgb(167, 139, 250);
+              private SharedPreferences prefs;
+
+              @Override public void onCreate(Bundle state) {
+                  super.onCreate(state);
+                  prefs = getSharedPreferences("gx_settings", MODE_PRIVATE);
+                  render();
+              }
+
+              private int dp(float v) { return (int)(v * getResources().getDisplayMetrics().density); }
+
+              private TextView text(String value, int size, int color, boolean bold) {
+                  TextView t = new TextView(this);
+                  t.setText(value); t.setTextSize(size); t.setTextColor(color);
+                  if (bold) t.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+                  return t;
+              }
+
+              private LinearLayout column() {
+                  LinearLayout l = new LinearLayout(this);
+                  l.setOrientation(LinearLayout.VERTICAL);
+                  l.setPadding(dp(20), dp(16), dp(20), dp(20));
+                  l.setBackgroundColor(BG);
+                  return l;
+              }
+
+              private void render() {
+                  ScrollView scroll = new ScrollView(this);
+                  LinearLayout root = column();
+                  scroll.setBackgroundColor(BG);
+                  scroll.addView(root);
+
+                  TextView brand = text("GX STORE   /   MOBILE", 12, PURPLE, true);
+                  brand.setLetterSpacing(.12f);
+                  root.addView(brand);
+
+                  TextView title = text("GX BloxTrap", 30, Color.WHITE, true);
+                  LinearLayout.LayoutParams titleP = new LinearLayout.LayoutParams(-1, -2);
+                  titleP.topMargin = dp(12);
+                  root.addView(title, titleP);
+                  TextView sub = text("ROBLOX COMPANION • ANDROID 11+", 11, 0xFF9CA3AF, true);
+                  LinearLayout.LayoutParams subP = new LinearLayout.LayoutParams(-1, -2);
+                  subP.topMargin = dp(5);
+                  root.addView(sub, subP);
+
+                  addCard(root, "LAUNCHER", "Abra o Roblox instalado no seu aparelho.", "ABRIR ROBLOX", v -> openRoblox());
+                  addCard(root, "PERSONALIZADOR", "Escolha e salve um perfil visual do GX BloxTrap.", 
+                      prefs.getString("profile", "Black Premium"), v -> showProfiles());
+                  addCard(root, "OTIMIZADOR", "Veja ajustes seguros do Android para melhorar a experiência.", 
+                      "VER RECOMENDAÇÕES", v -> showOptimization());
+                  addCard(root, "FASTFLAGS", "Consulte informações e compatibilidade. O app não injeta nem altera arquivos internos do Roblox.", 
+                      "ENTENDER FASTFLAGS", v -> showFlags());
+
+                  TextView footer = text("GX STORE  •  BUILD WITHOUT LIMITS", 10, 0xFF71717A, true);
+                  footer.setGravity(Gravity.CENTER);
+                  LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2);
+                  fp.topMargin = dp(24);
+                  root.addView(footer, fp);
+                  setContentView(scroll);
+              }
+
+              private void addCard(LinearLayout root, String heading, String description, String action, View.OnClickListener click) {
+                  LinearLayout card = new LinearLayout(this);
+                  card.setOrientation(LinearLayout.VERTICAL);
+                  card.setPadding(dp(16), dp(16), dp(16), dp(16));
+                  card.setBackgroundColor(CARD);
+                  LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2);
+                  cp.topMargin = dp(14);
+                  root.addView(card, cp);
+
+                  TextView h = text(heading, 12, PURPLE, true);
+                  h.setLetterSpacing(.08f);
+                  card.addView(h);
+                  TextView d = text(description, 14, 0xFFE4E4E7, false);
+                  LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(-1, -2);
+                  dp.topMargin = dp(8);
+                  card.addView(d, dp);
+
+                  Button b = new Button(this);
+                  b.setText(action);
+                  b.setTextColor(Color.WHITE);
+                  b.setAllCaps(false);
+                  b.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF6D28D9));
+                  LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, dp(48));
+                  bp.topMargin = dp(12);
+                  card.addView(b, bp);
+                  b.setOnClickListener(click);
+              }
+
+              private void openRoblox() {
+                  Intent launch = getPackageManager().getLaunchIntentForPackage("com.roblox.client");
+                  if (launch != null) startActivity(launch);
+                  else new AlertDialog.Builder(this).setTitle("Roblox não encontrado")
+                      .setMessage("Instale o Roblox pela Google Play Store e tente novamente.")
+                      .setPositiveButton("OK", null).show();
+              }
+
+              private void showProfiles() {
+                  String[] profiles = {"Black Premium", "Dark Minimal", "Purple Accent"};
+                  new AlertDialog.Builder(this).setTitle("Perfil visual")
+                      .setSingleChoiceItems(profiles, java.util.Arrays.asList(profiles).indexOf(prefs.getString("profile", profiles[0])),
+                          (dialog, which) -> {
+                              prefs.edit().putString("profile", profiles[which]).apply();
+                              Toast.makeText(this, "Perfil salvo: " + profiles[which], Toast.LENGTH_SHORT).show();
+                              dialog.dismiss(); render();
+                          }).setNegativeButton("Fechar", null).show();
+              }
+
+              private void showOptimization() {
+                  new AlertDialog.Builder(this).setTitle("Otimização segura")
+                      .setMessage("• Feche apps que não estiver usando.\\n• Mantenha o Roblox atualizado.\\n• Use uma conexão Wi-Fi estável.\\n• Evite jogar enquanto o aparelho estiver superaquecido.\\n\\nEste app não altera processos, memória ou arquivos do Roblox.")
+                      .setPositiveButton("Entendi", null).show();
+              }
+
+              private void showFlags() {
+                  new AlertDialog.Builder(this).setTitle("FastFlags no Android")
+                      .setMessage("FastFlags são configurações internas do cliente Roblox. No Android, um app externo comum não pode garantir que elas sejam aplicadas. Esta versão oferece apenas informações; não injeta código, não modifica o cliente e não promete flags funcionais.")
+                      .setPositiveButton("OK", null).show();
+              }
+          }
+          GX_EOF
+          echo "Projeto gerado em $PWD"
+          find . -type f | sort
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -43,12 +236,12 @@ jobs:
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
 
       - name: Build debug APK
-        working-directory: ${{ steps.proj.outputs.dir }}
+        working-directory: ${{ runner.temp }}/proj
         run: gradle --no-daemon assembleDebug --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: GX-BloxTrap-APK
-          path: ${{ steps.proj.outputs.dir }}/app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ runner.temp }}/proj/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
